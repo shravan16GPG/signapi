@@ -5,11 +5,6 @@ import { signMessage } from 'digital-signature-nodejs-sdk';
 const app = express();
 app.use(bodyParser.json());
 
-// ⚠️ Make sure these ENV vars are set in Render or Railway
-const keyId = process.env.EBAY_KEY_ID;          // Example: "abcde=="
-const privateKey = process.env.EBAY_PRIVATE_KEY; // Your ED25519 private key
-const jwe = process.env.EBAY_JWE;                // Your eBay JWE
-
 app.post('/sign', async (req, res) => {
   try {
     const { method, url, headers = {}, body = '' } = req.body;
@@ -20,13 +15,13 @@ app.post('/sign', async (req, res) => {
       headers,
       body,
       key: {
-        id: keyId,
-        privateKey,
+        id: process.env.EBAY_KEY_ID,
+        privateKey: process.env.EBAY_PRIVATE_KEY,
         algorithm: 'ed25519'
       },
       options: {
-        addMissingHeaders: true, // Auto-add Date, Host, etc.
-        jwe
+        jwe: process.env.EBAY_JWE,
+        addMissingHeaders: true
       }
     });
 
@@ -34,7 +29,7 @@ app.post('/sign', async (req, res) => {
       'Signature': result.signatureHeader,
       'Signature-Input': result.signatureInputHeader,
       'Content-Digest': result.digestHeader,
-      'x-ebay-signature-key': jwe,
+      'x-ebay-signature-key': process.env.EBAY_JWE,
       'Date': result.headers.date
     });
   } catch (err) {
