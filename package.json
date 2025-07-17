@@ -4,7 +4,7 @@
   "description": "ED25519 signer for eBay API requests",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node sign-server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
