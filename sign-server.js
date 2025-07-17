@@ -52,7 +52,7 @@ app.post('/sign', async (req, res) => {
         privateKey:   process.env.EBAY_PRIVATE_KEY,
         algorithm:    'ed25519',
       },
-      signatureParams,
+      signatureParams: SIGNATURE_PARAMS,
       signatureComponents,
     });
 
