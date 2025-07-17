@@ -1,11 +1,15 @@
 import express from 'express';
 import bodyParser from 'body-parser';
-import { signMessage } from 'digital-signature-nodejs-sdk';
+import {
+  generateDigestHeader,
+  generateSignatureInput,
+  generateSignature,
+  generateSignatureKey,
+} from 'digital-signature-nodejs-sdk';
 
 const app = express();
 app.use(bodyParser.json());
 
-// the exact list of headers/pseudo‑headers we sign:
 const SIGNATURE_PARAMS = [
   '(request-target)',
   'host',
@@ -14,58 +18,59 @@ const SIGNATURE_PARAMS = [
   'x-ebay-signature-key',
 ];
 
-app.post('/sign', async (req, res) => {
+app.post('/sign', (req, res) => {
   try {
-    // 1) Pull in the incoming HTTP‐call details
+    // 1) Extract request details
     const { method, url: rawUrl, headers = {}, body = '' } = req.body;
 
-    // 2) Normalize to a full URL + path
+    // 2) Build full URL & path
     const fullUrl = rawUrl.startsWith('http')
       ? rawUrl
       : `https://apiz.ebay.com${rawUrl}`;
     const { pathname, search, host } = new URL(fullUrl);
     const path = pathname + (search || '');
 
-    // 3) Ensure host & date headers exist
-    const date = new Date().toUTCString();
+    // 3) Ensure required headers
+    const dateHeader = new Date().toUTCString();
     headers.host = headers.host || host;
-    headers.date = headers.date || date;
+    headers.date = headers.date || dateHeader;
 
-    // 4) Build the components object (SDK will fill date & digest)
+    // 4) Generate Content-Digest header
+    //    e.g. "sha-256=BASE64_DIGEST"
+    const digestHeader = generateDigestHeader('sha256', body);
+
+    // 5) Build signatureComponents map
     const signatureComponents = {
       '(request-target)':    `${method.toLowerCase()} ${path}`,
       host:                  headers.host,
-      date:                  '',                // ← SDK auto‑populates
-      'content-digest':      '',                // ← SDK auto‑populates
-      'x-ebay-signature-key': process.env.EBAY_JWE
+      date:                  headers.date,
+      'content-digest':      digestHeader,
+      'x-ebay-signature-key': process.env.EBAY_JWE,
     };
 
-    // 5) Single‐object call with ALL config in v3.x
-    const result = await signMessage({
-      method,
-      url: fullUrl,
-      headers,
-      body,
-      key: {
-        id:         process.env.EBAY_KEY_ID,
-        privateKey: process.env.EBAY_PRIVATE_KEY,
-        algorithm:  'ed25519'
-      },
-      // ─── all these MUST be top‐level props for v3.x ───
-      jwe:                  process.env.EBAY_JWE,
-      digestAlgorithm:      'sha256',
-      signatureParams:      SIGNATURE_PARAMS,
-      signatureComponents,  // shorthand for the object above
-      addMissingHeaders:    true
-    });
+    // 6) Generate Signature-Input header
+    const signatureInput = generateSignatureInput(
+      SIGNATURE_PARAMS,
+      signatureComponents
+    );
 
-    // 6) Return just the four signature headers (plus Date)
+    // 7) Generate the raw signature (ED25519)
+    const signature = generateSignature(
+      signatureInput,
+      process.env.EBAY_PRIVATE_KEY,
+      'ed25519'
+    );
+
+    // 8) Generate the JWE key header value
+    const signatureKey = generateSignatureKey(process.env.EBAY_JWE);
+
+    // 9) Return the four headers
     return res.json({
-      'Signature':            result.signatureHeader,
-      'Signature-Input':      result.signatureInputHeader,
-      'Content-Digest':       result.digestHeader,
-      'x-ebay-signature-key': process.env.EBAY_JWE,
-      'Date':                 date
+      'Content-Digest':       digestHeader,
+      'Signature-Input':      signatureInput,
+      'Signature':            signature,
+      'x-ebay-signature-key': signatureKey,
+      'Date':                 dateHeader,
     });
   } catch (err) {
     console.error('Signer error:', err);
