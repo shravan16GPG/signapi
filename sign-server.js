@@ -17,46 +17,48 @@ app.post('/sign', async (req, res) => {
   try {
     const { method, url: rawUrl, headers = {}, body = '' } = req.body;
 
-    // 1️⃣ Build full URL & parse path
+    // 1) Build full URL and path
     const fullUrl = rawUrl.startsWith('http')
       ? rawUrl
       : `https://apiz.ebay.com${rawUrl}`;
     const { pathname, search, host } = new URL(fullUrl);
     const path = pathname + (search || '');
 
-    // 2️⃣ Ensure required headers
-    const date   = new Date().toUTCString();
+    // 2) Ensure host & date
+    const date = new Date().toUTCString();
     headers.host = headers.host || host;
     headers.date = headers.date || date;
 
-    // 3️⃣ Build signatureComponents
+    // 3) Build signatureComponents
     const signatureComponents = {
-      '(request-target)': `${method.toLowerCase()} ${path}`,
-      host:               headers.host,
-      date:               '',    // SDK will fill in
-      'content-digest':   '',    // SDK will fill in
+      '(request-target)':    `${method.toLowerCase()} ${path}`,
+      host:                  headers.host,
+      date:                  '',           // SDK will fill
+      'content-digest':      '',           // SDK will fill
       'x-ebay-signature-key': process.env.EBAY_JWE,
     };
 
-    // 4️⃣ Single-object call to signMessage()
+    // 4) Single-object call: everything in `options`
     const result = await signMessage({
       method,
       url: fullUrl,
       headers,
       body,
-      // core config:
-      digestAlgorithm: 'sha256',
-      jwe:              process.env.EBAY_JWE,
       key: {
-        id:           process.env.EBAY_KEY_ID,
-        privateKey:   process.env.EBAY_PRIVATE_KEY,
-        algorithm:    'ed25519',
+        id:          process.env.EBAY_KEY_ID,
+        privateKey:  process.env.EBAY_PRIVATE_KEY,
+        algorithm:   'ed25519',
       },
-      signatureParams: SIGNATURE_PARAMS,
-      signatureComponents,
+      options: {
+        jwe:                  process.env.EBAY_JWE,
+        digestAlgorithm:      'sha256',
+        signatureParams:      SIGNATURE_PARAMS,
+        signatureComponents,  // shorthand
+        addMissingHeaders:    true,
+      }
     });
 
-    // 5️⃣ Send back exactly the headers you need
+    // 5) Return the four headers
     return res.json({
       'Signature':            result.signatureHeader,
       'Signature-Input':      result.signatureInputHeader,
