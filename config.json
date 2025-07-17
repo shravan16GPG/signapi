@@ -1,0 +1,21 @@
+{
+  "digestAlgorithm": "sha256",
+  "jwe": "eyJ6aXAiOiJERUYiLCJraWQiOiJhZjE4NDE3NC0wMjg2LTQ2OWQtOWJhZi04MmM3NWFmZDIwZDUiLCJlbmMiOiJBMjU2R0NNIiwidGFnIjoiZWRTdjdKbXJLQlp0LTZ3d0twdzdmdyIsImFsZyI6IkEyNTZHQ01LVyIsIml2IjoiQWg2YlZKc2gxcDRYQm1kQiJ9.Z9cycF4ORdteDgEZ6QvqSCsxmC_PN4cKXsJg1f2kxOc.ncPfFaziATo1ZUgL.s4KEXJ7KdyubixGgEtABi2gacOM9oPVDT2dQx48OLc16hpjw_EZOKTZrfuEZwNiPBMkWA0PiW-qSvU9Ae53-VMxkwyFF9y__ww09qihauRmp-1Z2BqaGDrZdgt4xuaw-C3W7VTZUNNYcuR2yZS_Z-S8Kzp6rRuWW0nP_cZPEzN-nJ8etAnlv6IkKXSRuBv_g02GybabbWneAmnjCe6QSdvmwi-4KB2lk9_TvjorVu8ate1Z5RBZAp51xwurqFb-j_LXRnJXo6aAn.pJfbZw34xp_cygyCk9IRcw",
+  "privateKey": "MC4CAQAwBQYDK2VwBCIEIDFIHe8P2Sj5QZPD98Ym2aWsX6ek+eVcNMuc6k8qbY+x",
+  "signatureComponents": {
+    "method": "GET",
+    "path": "/sell/finances/v1/transaction?limit=10",
+    "authority": "api.ebay.com",
+    "headers": {
+      "accept": "application/json",
+      "x-ebay-signature-key": "d17e076e-e1d7-4d0d-9b43-fc04b4bc24ff"
+    }
+  },
+  "signatureParams": [
+    "accept",
+    "x-ebay-signature-key",
+    "@method",
+    "@path",
+    "@authority"
+  ]
+}

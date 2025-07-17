@@ -1,0 +1,17 @@
+{
+  "type": "module",
+  "name": "signapi",
+  "version": "1.0.0",
+  "main": "generate_eu_uk_headers.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@noble/ed25519": "^2.3.0",
+    "digital-signature-nodejs-sdk": "^3.0.1"
+  }
+}
