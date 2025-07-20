@@ -7,6 +7,10 @@ import base64url from 'base64url';
 import crypto from 'crypto';
 import { URL } from 'url';
 import ntpClient from 'ntp-client';
+import { DateTime } from 'luxon';
+import ebaySignature from 'digital-signature-nodejs-sdk';
+
+
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -100,8 +104,84 @@ app.post('/sign', (req, res) => {
   });
 });
 
+app.post('/sign-sdk', (req, res) => {
+    try {
+        // LOGGING: Log the start of a new request
+        console.log("\n--- New Signing Request Received ---");
 
-// --- Server Start ---
+        const { keys } = req.body;
+        if (!keys || !keys.jwe || !keys.privatekey) {
+            console.error("ERROR: Request body was missing 'keys', 'jwe', or 'privatekey'.");
+            return res.status(400).json({
+                error: "Request body must include a 'keys' object with 'jwe' and 'privatekey'."
+            });
+        }
+        
+        // LOGGING: Confirm that keys were received without logging the actual secret key
+        console.log(`[1/5] Keys received. JWE present: ${!!keys.jwe}, Private Key present: ${!!keys.privatekey}`);
+
+        // --- URL Construction Logic ---
+        const baseUrl = 'https://api.ebay.com/sell/finances/v1/transaction';
+        const startDate = DateTime.now().setZone('utc').minus({ weeks: 1 }).toISO();
+        const endDate = DateTime.now().setZone('utc').toISO();
+        const filterValue = `transactionDate:[${startDate}..${endDate}]`;
+        const typeValue = '{SALE,REFUND}';
+        const finalUrl = `${baseUrl}?filter=${encodeURIComponent(filterValue)}&transactionType=${encodeURIComponent(typeValue)}`;
+
+        // LOGGING: Log the URL that will be used for the signature
+        console.log(`[2/5] Generated URL for signing: ${finalUrl}`);
+
+        // --- Use the SDK for Signing ---
+        const config = {
+            privateKey: `-----BEGIN PRIVATE KEY-----\n${keys.privatekey}\n-----END PRIVATE KEY-----`,
+            signatureParams: [
+                'x-ebay-signature-key',
+                '@method',
+                '@path',
+                '@authority'
+            ]
+        };
+
+        const parsedUrl = new URL(finalUrl);
+        const signingData = {
+            '@method': 'GET',
+            '@path': parsedUrl.pathname + parsedUrl.search,
+            '@authority': parsedUrl.host,
+            'x-ebay-signature-key': keys.jwe
+        };
+
+        // LOGGING: Log the exact data being passed to the SDK
+        console.log('[3/5] Data being passed to eBay SDK:', JSON.stringify(signingData, null, 2));
+
+        const signatureInput = ebaySignature.generateSignatureInput(signingData, config);
+        const signature = ebaySignature.generateSignature(signingData, config);
+
+        // LOGGING: Log the output from the SDK
+        console.log(`[4/5] SDK generated Signature-Input: ${signatureInput}`);
+        console.log(`[4/5] SDK generated Signature: ${signature}`);
+
+
+        // --- Prepare Final Response ---
+        const responseHeaders = {
+            'x-ebay-signature-key': keys.jwe,
+            'Signature-Input': signatureInput,
+            'Signature': signature,
+            'url': finalUrl
+        };
+
+        // LOGGING: Log the complete object being sent back to n8n
+        console.log('[5/5] Final response object sent to n8n:', JSON.stringify(responseHeaders, null, 2));
+        console.log("--- Request Finished Successfully ---\n");
+        
+        res.status(200).json(responseHeaders);
+
+    } catch (error) {
+        console.error('--- ERROR during signing process ---');
+        console.error(error.stack);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(port, () => {
-  console.log(`✅ Sign server listening on http://localhost:${port}`);
+    console.log(`✅ SDK-based Sign server with logging listening on port ${port}`);
 });
