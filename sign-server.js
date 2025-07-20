@@ -122,7 +122,7 @@ app.post('/sign-sdk', (req, res) => {
         const startDate = DateTime.now().setZone('utc').minus({ weeks: 1 }).toISO();
         const endDate = DateTime.now().setZone('utc').toISO();
         const filterValue = `transactionDate:[${startDate}..${endDate}]`;
-        const typeValue = '{SALE,REFUND}';
+        const typeValue = '{SALE}';
         const finalUrl = `${baseUrl}?filter=${encodeURIComponent(filterValue)}&transactionType=${encodeURIComponent(typeValue)}`;
         const parsedUrl = new URL(finalUrl);
         
@@ -138,7 +138,8 @@ app.post('/sign-sdk', (req, res) => {
             ],
             signatureComponents: {
                 '@method': 'GET',
-                '@path': parsedUrl.pathname + parsedUrl.search,
+                '@path': parsedUrl.pathname,
+                //  + parsedUrl.search,
                 '@authority': parsedUrl.host
             }
         };
