@@ -1,11 +1,10 @@
-// sign-server.js - Final version that accepts a URL in the request body
+// server.js - Final version with manual crypto implementation
 
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
-import { DateTime } from 'luxon';
+import crypto from 'crypto';
 import { URL } from 'url';
-import ebaySignature from 'digital-signature-nodejs-sdk';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -13,37 +12,45 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
-app.post('/sign-sdk', (req, res) => {
+// A single, robust endpoint to generate signatures
+app.post('/sign', (req, res) => {
     try {
-        // Now accepts 'keys' and 'url' from the request body
         const { keys, url } = req.body;
         if (!keys || !keys.jwe || !keys.privatekey || !url) {
-            throw new Error("Request body must include 'url' and a 'keys' object with 'jwe' and 'privatekey'.");
+            throw new Error("Request body must include 'url' and a 'keys' object.");
         }
 
         const JWE = keys.jwe;
         const PRIVATE_KEY = keys.privatekey;
-        
-        // The URL is now taken directly from the request
         const finalUrl = url;
         const parsedUrl = new URL(finalUrl);
-        
-        console.log(`[INFO] Signing URL: ${finalUrl}`);
 
-        const config = {
-            privateKey: `-----BEGIN PRIVATE KEY-----\n${PRIVATE_KEY}\n-----END PRIVATE KEY-----`,
-            signatureParams: ['x-ebay-signature-key', '@method', '@path', '@authority'],
-            signatureComponents: {
-                '@method': 'GET',
-                '@path': parsedUrl.pathname, // Sign only the base path
-                '@authority': parsedUrl.host
-            }
-        };
+        // Step 1: Manually create the Signature-Input header
+        const created = Math.floor(Date.now() / 1000);
+        const signatureInput = `sig1=("x-ebay-signature-key" "@method" "@path" "@authority");created=${created}`;
 
-        const headersToSign = { 'x-ebay-signature-key': JWE };
-        const signatureInput = ebaySignature.generateSignatureInput(headersToSign, config);
-        const signature = ebaySignature.generateSignature(headersToSign, config);
+        // Step 2: Manually build the exact signature base string
+        const signatureParamsValue = signatureInput.substring(5); // Remove 'sig1='
+        const signatureBaseLines = [
+            `"x-ebay-signature-key": ${JWE}`,
+            `"@method": GET`,
+            `"@path": ${parsedUrl.pathname}`, // Using the non-standard rule of base path only
+            `"@authority": ${parsedUrl.host}`,
+            `"@signature-params": ${signatureParamsValue}`
+        ];
+        const signatureBase = signatureBaseLines.join('\n');
+
+        // Step 3: Sign the base string using Node.js crypto
+        const privateKeyPEM = crypto.createPrivateKey({
+            key: `-----BEGIN PRIVATE KEY-----\n${PRIVATE_KEY}\n-----END PRIVATE KEY-----`,
+            format: 'pem'
+        });
+        const signatureBytes = crypto.sign(null, Buffer.from(signatureBase), privateKeyPEM);
         
+        // Step 4: Format the final Signature header
+        const signature = `sig1=:${signatureBytes.toString('base64')}:`;
+        
+        // Step 5: Assemble the final response for n8n
         const finalResponse = {
             'x-ebay-signature-key': JWE,
             'Signature-Input': signatureInput,
@@ -51,7 +58,6 @@ app.post('/sign-sdk', (req, res) => {
             'url': finalUrl 
         };
         
-        console.log("✅ --- SUCCESS: Signature Generated --- ✅");
         res.status(200).json(finalResponse);
 
     } catch (error) {
@@ -61,5 +67,5 @@ app.post('/sign-sdk', (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`✅ Final Generic Signing Server listening on port ${port}`);
+    console.log(`✅ Final Manual Signing Server listening on port ${port}`);
 });
