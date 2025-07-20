@@ -1,161 +1,68 @@
-// sign-server.js
-// Contains the original /sign endpoint and the new, corrected /sign-sdk endpoint.
+// sign-server.js - Final version implementing the non-standard path signing.
 
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
-import base64url from 'base64url';
-import crypto from 'crypto';
-import { URL } from 'url';
-import ntpClient from 'ntp-client';
-// --- Add new dependencies for the /sign-sdk endpoint ---
 import { DateTime } from 'luxon';
+import { URL } from 'url';
 import ebaySignature from 'digital-signature-nodejs-sdk';
-
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Middleware Setup ---
 app.use(cors());
 app.use(bodyParser.json());
 
-
-// --- Utility Functions from Original Code ---
-function sha256Digest(payload) {
-  const hash = crypto.createHash('sha256');
-  hash.update(payload, 'utf8');
-  return `sha-256=:${hash.digest('base64')}:`;
-}
-
-function formatPrivateKeyToPEM(rawKey) {
-  return `-----BEGIN PRIVATE KEY-----\n${rawKey}\n-----END PRIVATE KEY-----`;
-}
-
-function signEd25519(base, privateKeyPem) {
-  try {
-    const key = crypto.createPrivateKey({
-      key: privateKeyPem,
-      format: 'pem',
-      type: 'sec1'
-    });
-    const sign = crypto.sign(null, Buffer.from(base, 'utf8'), key);
-    return base64url.encode(sign);
-  } catch (e) {
-    console.error("Error creating private key. Check if the key format is correct.", e);
-    throw e;
-  }
-}
-
-
-// --- Original /sign Endpoint (Unchanged) ---
-app.post('/sign', (req, res) => {
-  ntpClient.getNetworkTime("a.st1.ntp.br", 123, (err, date) => {
-    if (err) {
-      console.error("NTP Error:", err);
-      date = new Date();
-    }
-
-    try {
-      const { method, url, keys, body } = req.body;
-      if (!method || !url || !keys || !keys.jwe || !keys.privatekey) {
-        return res.status(400).json({
-          error: "Request body must include 'method', 'url', and a 'keys' object with 'jwe' and 'privatekey'."
-        });
-      }
-
-      const created = Math.floor(date.getTime() / 1000);
-      const parsedUrl = new URL(url);
-      const methodUpper = method.toUpperCase();
-      const responseHeaders = { 'x-ebay-signature-key': keys.jwe };
-      let digest = null;
-      let coveredComponents = ['"x-ebay-signature-key"', '"@method"', '"@path"', '"@authority"'];
-
-      if (["POST", "PUT", "PATCH"].includes(methodUpper)) {
-        const payload = body ? JSON.stringify(body) : '{}';
-        digest = sha256Digest(payload);
-        responseHeaders['Content-Digest'] = digest;
-        coveredComponents.unshift('"content-digest"');
-      }
-
-      const signatureInputString = `sig1=(${coveredComponents.join(' ')});created=${created}`;
-      const signatureBaseLines = [];
-      if (digest) { signatureBaseLines.push(`"content-digest": ${digest}`); }
-      signatureBaseLines.push(`"x-ebay-signature-key": ${keys.jwe}`);
-      signatureBaseLines.push(`"@method": ${methodUpper}`);
-      const pathWithQuery = parsedUrl.pathname + parsedUrl.search;
-      signatureBaseLines.push(`"@path": ${pathWithQuery}`);
-      signatureBaseLines.push(`"@authority": ${parsedUrl.host}`);
-      signatureBaseLines.push(`"@signature-params": ${signatureInputString}`);
-      const signatureBase = signatureBaseLines.join('\n');
-      const privateKeyPEM = formatPrivateKeyToPEM(keys.privatekey);
-      const signature = signEd25519(signatureBase, privateKeyPEM);
-
-      responseHeaders['Signature-Input'] = signatureInputString;
-      responseHeaders['Signature'] = `sig1=:${signature}:`;
-
-      console.log(`Successfully signed with NTP time. Timestamp sent: ${created}`);
-      res.status(200).json(responseHeaders);
-
-    } catch (error) {
-      console.error('Error during signing process:', error.message);
-      res.status(500).json({ error: error.message });
-    }
-  });
-});
-
-
-// --- NEW, CORRECTED /sign-sdk endpoint ---
 app.post('/sign-sdk', (req, res) => {
     try {
         console.log("\n--- New SDK Signing Request Received ---");
         const { keys } = req.body;
-
         if (!keys || !keys.jwe || !keys.privatekey) {
-            throw new Error("Request must include JWE and Private Key in the 'keys' object.");
+            throw new Error("Request must include JWE and Private Key.");
         }
 
         const JWE = keys.jwe;
         const PRIVATE_KEY = keys.privatekey;
 
+        // 1. Generate the FULL URL with query parameters. This will be sent to n8n for the final API call.
         const baseUrl = 'https://api.ebay.com/sell/finances/v1/transaction';
         const startDate = DateTime.now().setZone('utc').minus({ weeks: 1 }).toISO();
         const endDate = DateTime.now().setZone('utc').toISO();
         const filterValue = `transactionDate:[${startDate}..${endDate}]`;
-        const typeValue = '{SALE}';
+        const typeValue = '{SALE,REFUND}';
         const finalUrl = `${baseUrl}?filter=${encodeURIComponent(filterValue)}&transactionType=${encodeURIComponent(typeValue)}`;
         const parsedUrl = new URL(finalUrl);
         
-        console.log(`[INFO] Using URL: ${finalUrl}`);
+        console.log(`[INFO] Full URL for API call: ${finalUrl}`);
 
+        // 2. Create the configuration for the SDK.
         const config = {
             privateKey: `-----BEGIN PRIVATE KEY-----\n${PRIVATE_KEY}\n-----END PRIVATE KEY-----`,
-            signatureParams: [
-                'x-ebay-signature-key',
-                '@method',
-                '@path',
-                '@authority'
-            ],
+            signatureParams: ['x-ebay-signature-key', '@method', '@path', '@authority'],
             signatureComponents: {
                 '@method': 'GET',
+                // --- THE CRITICAL FIX IS HERE ---
+                // Per community findings, we sign ONLY the pathname, ignoring the query string.
                 '@path': parsedUrl.pathname,
-                //  + parsedUrl.search,
                 '@authority': parsedUrl.host
             }
         };
 
+        // 3. Generate the signature using the base path.
         const headersToSign = { 'x-ebay-signature-key': JWE };
         const signatureInput = ebaySignature.generateSignatureInput(headersToSign, config);
         const signature = ebaySignature.generateSignature(headersToSign, config);
         
+        // 4. Send the response back to n8n. It contains the signature (based on the short path)
+        // and the FULL URL for n8n to call.
         const finalResponse = {
             'x-ebay-signature-key': JWE,
             'Signature-Input': signatureInput,
             'Signature': signature,
-            'url': finalUrl
+            'url': finalUrl 
         };
 
-        console.log("\n✅ --- SUCCESS: Signature Generated --- ✅");
+        console.log("✅ --- SUCCESS: Signature Generated --- ✅");
         res.status(200).json(finalResponse);
 
     } catch (error) {
@@ -165,8 +72,6 @@ app.post('/sign-sdk', (req, res) => {
     }
 });
 
-
-// --- Server Start ---
 app.listen(port, () => {
-  console.log(`✅ Sign server listening on http://localhost:${port}`);
+    console.log(`✅ Final Signing Server listening on port ${port}`);
 });
