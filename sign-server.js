@@ -1,4 +1,4 @@
-// sign-server.js (COMPLETE AND CORRECTED FILE)
+// sign-server.js (FINAL VERSION with SEC1 Key Fix)
 
 import express from 'express';
 import bodyParser from 'body-parser';
@@ -11,7 +11,7 @@ import ntpClient from 'ntp-client';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Middleware Setup (This was likely missing) ---
+// --- Middleware Setup ---
 app.use(cors());
 app.use(bodyParser.json());
 
@@ -27,19 +27,28 @@ function formatPrivateKeyToPEM(rawKey) {
   return `-----BEGIN PRIVATE KEY-----\n${rawKey}\n-----END PRIVATE KEY-----`;
 }
 
+// THIS FUNCTION IS NOW CORRECTED
 function signEd25519(base, privateKeyPem) {
-  const key = crypto.createPrivateKey({ key: privateKeyPem, format: 'pem', type: 'pkcs8' });
-  const sign = crypto.sign(null, Buffer.from(base, 'utf8'), key);
-  return base64url.encode(sign);
+  try {
+    const key = crypto.createPrivateKey({
+      key: privateKeyPem,
+      format: 'pem',
+      type: 'sec1' // <-- THIS IS THE FIX (changed from 'pkcs8')
+    });
+    const sign = crypto.sign(null, Buffer.from(base, 'utf8'), key);
+    return base64url.encode(sign);
+  } catch (e) {
+    console.error("Error creating private key. Check if the key format is correct.", e);
+    throw e;
+  }
 }
 
 
-// --- Signer Endpoint (With NTP Time Fix) ---
+// --- Signer Endpoint ---
 app.post('/sign', (req, res) => {
   ntpClient.getNetworkTime("a.st1.ntp.br", 123, (err, date) => {
     if (err) {
       console.error("NTP Error:", err);
-      // Fallback to system time if NTP fails, but log it
       date = new Date();
     }
 
@@ -85,7 +94,7 @@ app.post('/sign', (req, res) => {
       res.status(200).json(responseHeaders);
 
     } catch (error) {
-      console.error('Error during signing process:', error);
+      console.error('Error during signing process:', error.message);
       res.status(500).json({ error: error.message });
     }
   });
