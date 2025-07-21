@@ -12,6 +12,17 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// Logging middleware for incoming requests
+app.use((req, res, next) => {
+    const start = Date.now();
+    const source = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log(`[${new Date().toISOString()}] Source: ${source} | ${req.method} ${req.originalUrl} | Status: ${res.statusCode} | ${duration}ms`);
+    });
+    next();
+});
+
 // A single, robust endpoint to generate signatures
 app.post('/sign', (req, res) => {
     try {
@@ -71,5 +82,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`✅ Final Manual Signing Server listening on port ${port}`);
+    console.log(`Final Manual Signing Server listening on port ${port}`);
 });
