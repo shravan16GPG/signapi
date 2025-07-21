@@ -66,6 +66,10 @@ app.post('/sign', (req, res) => {
     }
 });
 
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
 app.listen(port, () => {
     console.log(`✅ Final Manual Signing Server listening on port ${port}`);
 });
